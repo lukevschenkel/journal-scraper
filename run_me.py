@@ -32,6 +32,7 @@ class Main:
     }
     use_debug = True
     mongo_uri = "mongodb+srv://admin:8teW6y6NsfwA@arxiv.pjzernq.mongodb.net/?retryWrites=true&w=majority&appName=arxiv"
+    max_retry_cnt = 3
 
     def __init__(self):
         try:
@@ -59,7 +60,7 @@ class Main:
         except Exception as e:
             self.print_out(f"start_requests: {e}")
 
-    def parse_page(self, url):
+    def parse_page(self, url, retry_cnt=0):
         try:
             response = self.session.get(url, headers=self.headers)
             soup = BeautifulSoup(response.text, features="xml")
@@ -73,6 +74,9 @@ class Main:
 
         except Exception as e:
             self.print_out(f"parse_page: {e}")
+            if retry_cnt > self.max_retry_cnt:
+                return
+            self.parse_page(url, retry_cnt+1)
 
     def parse_article(self, article):
         try:
