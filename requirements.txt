@@ -1,3 +1,4 @@
 requests
 mongoengine
 beautifulsoup4
+selenium
