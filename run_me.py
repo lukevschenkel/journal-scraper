@@ -14,17 +14,18 @@ class Article(Document):
     uid = StringField()
     url = StringField()
     tags = ListField()
-    resource = ListField()
+    pdf_url = StringField()
+    other_url = StringField()
     title = StringField()
     abstract = StringField()
-    authors = ListField()
+    authors = ListField(StringField())
     subjects = StringField()
     submitted_date = StringField()
     announced_date = StringField()
     comments = StringField()
-    cite_as = ListField()
+    cite_as = ListField(StringField())
     related_doi = StringField()
-    references_and_citations = ListField()
+    references_and_citations = ListField(StringField())
 
 
 class BaseScraper:
@@ -134,7 +135,7 @@ class ArxivScraper(BaseScraper):
         try:
             current_year = datetime.date.today().year + 1
             for subject in subject_list:
-                for year in range(1991, current_year):
+                for year in range(2010, current_year):
                     for alpha in string.ascii_lowercase:
                         url = f"https://arxiv.org/search/advanced?advanced=&terms-0-operator=AND&terms-0-term={alpha}&terms-0-field=all&{subject}=y&classification-physics_archives=all&classification-include_cross_list=include&date-filter_by=specific_year&date-year={year}&date-from_date=&date-to_date=&date-date_type=submitted_date&abstracts=show&size=200&order=-announced_date_first"
                         self.parse_page(url)
@@ -146,13 +147,20 @@ class ArxivScraper(BaseScraper):
             response = self.session.get(url, headers=self.headers)
             soup = BeautifulSoup(response.text, features="xml")
             articles = soup.select("li[class='arxiv-result']")
+            if len(articles) == 0 and retry_cnt > self.max_retry_cnt:
+                exit(0)
+
             for article in articles:
                 self.parse_article(article)
 
-            next_page_url = soup.select_one("a[class='pagination-next']")
-            if next_page_url:
-                self.parse_page(f"{self.base_url}{next_page_url['href']}")
-
+            try:
+                next_page_url = soup.select_one("a[class='pagination-next']")
+                if next_page_url:
+                    self.parse_page(f"{self.base_url}{next_page_url['href']}")
+            except:
+                start_from = int(url.split("&start=")[1]) + 200
+                next_page_url = f"{'&'.join(url.split('&')[:-1])}&start={start_from}"
+                self.parse_page(f"{self.base_url}{next_page_url}", retry_cnt+1)
         except Exception as e:
             self.print_out(f"parse_page: {e}")
             if retry_cnt > self.max_retry_cnt:
@@ -174,25 +182,34 @@ class ArxivScraper(BaseScraper):
             if len(dates) < 2:
                 dates.append("")
 
-            details = {
-                "platform": self.name,
-                "uid": uid,
-                "url": url,
-                "tags": self.get_value_list(article.select_one("div[class='tags is-inline-block'] span")),
-                "resource": self.get_value_list(article.select("p[class='list-title is-inline-block'] span a"), "href"),
-                "title": self.get_value(article.select_one("p[class='title is-5 mathjax']")),
-                "abstract": self.get_value(soup.select_one("blockquote[class='abstract mathjax']")),
-                "authors": self.get_value_list(article.select("p[class='authors'] a")),
-                "subjects": self.get_value(soup.select_one("td[class='tablecell subjects']")),
-                "submitted_date": dates[0],
-                "announced_date": dates[-1],
-                "comments": self.get_value(article.select_one("p[class='comments is-size-7'] span[class='has-text-grey-dark mathjax']")),
-                "cite_as": self.eliminate_space([self.get_value(soup.select_one("td[class='tablecell arxivid']")), self.get_value(soup.select_one("td[class='tablecell arxividv']")), self.get_value(soup.select_one("td[class='tablecell arxivdoi'] a"))]),
-                "related_doi": self.get_value(soup.select_one("td[class='tablecell doi']")),
-                "references_and_citations": self.get_value_list(soup.select("div[class='extra-ref-cite'] ul li"))
-            }
-            Article(**details).save()
-            self.print_out(f"success: {details['uid']}")
+            resources = self.get_value_list(article.select("p[class='list-title is-inline-block'] span a"), "href")
+            pdf_url = ""
+            other_url = ""
+            for resource in resources:
+                if "/pdf/" in resource:
+                    pdf_url = resource
+                if "/format/" in resource:
+                    other_url = resource
+
+            Article(
+                platform=self.name,
+                uid=uid,
+                url=url,
+                tags=self.get_value_list(article.select_one("div[class='tags is-inline-block'] span")),
+                pdf_url=pdf_url,
+                other_url=other_url,
+                title=self.get_value(article.select_one("p[class='title is-5 mathjax']")),
+                abstract=self.get_value(soup.select_one("blockquote[class='abstract mathjax']")),
+                authors=self.get_value_list(article.select("p[class='authors'] a")),
+                subjects=self.get_value(soup.select_one("td[class='tablecell subjects']")),
+                submitted_date=dates[0],
+                announced_date=dates[-1],
+                comments=self.get_value(article.select_one("p[class='comments is-size-7'] span[class='has-text-grey-dark mathjax']")),
+                cite_as=self.eliminate_space([self.get_value(soup.select_one("td[class='tablecell arxivid']")), self.get_value(soup.select_one("td[class='tablecell arxividv']")), self.get_value(soup.select_one("td[class='tablecell arxivdoi'] a"))]),
+                related_doi=self.get_value(soup.select_one("td[class='tablecell doi']")),
+                references_and_citations=self.get_value_list(soup.select("div[class='extra-ref-cite'] ul li"))
+            ).save()
+            self.print_out(f"success: {uid}")
         except Exception as e:
             self.print_out(f"parse_article: {e}")
 
@@ -242,7 +259,6 @@ class IeeeScraper(BaseScraper):
 
             for article in articles:
                 self.parse_article(article)
-
         except Exception as e:
             self.print_out(f"parse_page: {e}")
             if retry_cnt > self.max_retry_cnt:
@@ -256,29 +272,25 @@ class IeeeScraper(BaseScraper):
             if len(articles) > 0:
                 return
 
-            # url = self.get_prop(article.select_one("p[class='list-title is-inline-block'] a"), "href")
-            # response = self.session.get(url, headers=self.headers)
-            # soup = BeautifulSoup(response.text, features="xml")
-
-            details = {
-                "platform": self.name,
-                "uid": uid,
-                "url": f"{self.base_url}{article.get('documentLink')}",
-                "resource": [f"{self.base_url}{article.get('pdfLink')}", article.get('rightsLink')],
-                "title": article.get("articleTitle"),
-                "abstract": article.get("abstract"),
-                "authors": [author.get("preferredName") for author in article.get("authors")],
-                "subjects": article.get("displayPublicationTitle"),
-                "submitted_date": article.get("publicationDate"),
-                "announced_date": article.get("publicationYear"),
-                "cite_as": [f"Papers ({article.get('citationCount')})", f"Patents ({article.get('patentCitationCount')})"],
-            }
-            Article(**details).save()
-            self.print_out(f"success: {details['uid']}")
+            Article(
+                platform=self.name,
+                uid=uid,
+                url=f"{self.base_url}{article.get('documentLink')}",
+                pdf_url=f"{self.base_url}{article.get('pdfLink')}",
+                other_url=article.get('rightsLink'),
+                title=article.get("articleTitle"),
+                abstract=article.get("abstract"),
+                authors=[author.get("preferredName") for author in article.get("authors")],
+                subjects=article.get("displayPublicationTitle"),
+                submitted_date=article.get("publicationDate"),
+                announced_date=article.get("publicationYear"),
+                cite_as=[f"Papers ({article.get('citationCount')})", f"Patents ({article.get('patentCitationCount')})"],
+            ).save()
+            self.print_out(f"success: {uid}")
         except Exception as e:
             self.print_out(f"parse_article: {e}")
 
 
 if __name__ == '__main__':
-    # ArxivScraper().run()
-    IeeeScraper().run()
+    ArxivScraper().run()
+    # IeeeScraper().run()
