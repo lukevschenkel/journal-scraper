@@ -13,7 +13,7 @@ class Article(Document):
     platform = StringField()
     uid = StringField()
     url = StringField()
-    tags = ListField()
+    tags = ListField(StringField())
     pdf_url = StringField()
     other_url = StringField()
     title = StringField()
