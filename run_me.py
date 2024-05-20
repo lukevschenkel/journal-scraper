@@ -8,6 +8,7 @@ import pdb
 from mongoengine import *
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
+from pyvirtualdisplay import Display
 
 
 class Article(Document):
@@ -43,6 +44,8 @@ class BaseScraper:
             self.print_out(f"init: {e}")
 
     def get_driver(self):
+        self.display = Display(visible=0, size=(800, 600))
+        self.display.start()
         service = Service(executable_path='./chromedriver.exe')
         options = webdriver.ChromeOptions()
         # options.add_argument('--headless=new')
@@ -248,6 +251,10 @@ class IeeeScraper(BaseScraper):
         except Exception as e:
             self.print_out(f"run: {e}")
 
+    def stop(self):
+        self.display.stop()
+        exit(0)
+
     def parse_page(self, page_number, retry_cnt=0):
         try:
             post_script = '''
@@ -269,7 +276,7 @@ class IeeeScraper(BaseScraper):
             response = self.driver.execute_script(post_script)
             articles = response.get("records", [])
             if len(articles) == 0:
-                exit(0)
+                self.stop()
 
             for article in articles:
                 self.parse_article(article)
@@ -312,5 +319,5 @@ class IeeeScraper(BaseScraper):
 
 
 if __name__ == '__main__':
-    ArxivScraper().run()
-    # IeeeScraper().run()
+    # ArxivScraper().run()
+    IeeeScraper().run()
